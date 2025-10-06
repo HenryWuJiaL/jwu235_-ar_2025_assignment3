@@ -1,0 +1,219 @@
+<!doctype html>
+<html>
+    <head>
+        <meta http-equiv="Content-Type" content="text/html; charset=utf-8" />
+
+        <title>Babylon.js sample code</title>
+
+        <!-- Babylon.js -->
+        <script src="https://cdnjs.cloudflare.com/ajax/libs/dat-gui/0.6.2/dat.gui.min.js"></script>
+        <script src="https://assets.babylonjs.com/generated/Assets.js"></script>
+        <script src="https://cdn.babylonjs.com/recast.js"></script>
+        <script src="https://cdn.babylonjs.com/ammo.js"></script>
+        <script src="https://cdn.babylonjs.com/havok/HavokPhysics_umd.js"></script>
+        <script src="https://cdn.babylonjs.com/cannon.js"></script>
+        <script src="https://cdn.babylonjs.com/Oimo.js"></script>
+        <script src="https://cdn.babylonjs.com/earcut.min.js"></script>
+        <script src="https://cdn.babylonjs.com/babylon.js"></script>
+        <script src="https://cdn.babylonjs.com/materialsLibrary/babylonjs.materials.min.js"></script>
+        <script src="https://cdn.babylonjs.com/proceduralTexturesLibrary/babylonjs.proceduralTextures.min.js"></script>
+        <script src="https://cdn.babylonjs.com/postProcessesLibrary/babylonjs.postProcess.min.js"></script>
+        <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.js"></script>
+        <script src="https://cdn.babylonjs.com/serializers/babylonjs.serializers.min.js"></script>
+        <script src="https://cdn.babylonjs.com/gui/babylon.gui.min.js"></script>
+        <script src="https://cdn.babylonjs.com/addons/babylonjs.addons.min.js"></script>
+        <script src="https://cdn.babylonjs.com/inspector/babylon.inspector.bundle.js"></script>
+
+        <style>
+            html,
+            body {
+                overflow: hidden;
+                width: 100%;
+                height: 100%;
+                margin: 0;
+                padding: 0;
+            }
+
+            #renderCanvas {
+                width: 100%;
+                height: 100%;
+                touch-action: none;
+            }
+
+            #canvasZone {
+                width: 100%;
+                height: 100%;
+            }
+        </style>
+    </head>
+    <body>
+        <div id="canvasZone"><canvas id="renderCanvas"></canvas></div>
+        <script>
+                    var canvas = document.getElementById("renderCanvas");
+
+                    var startRenderLoop = function (engine, canvas) {
+                        engine.runRenderLoop(function () {
+                            if (sceneToRender && sceneToRender.activeCamera) {
+                                sceneToRender.render();
+                            }
+                        });
+                    }
+
+                    var engine = null;
+        var scene = null;
+        var sceneToRender = null;
+        var createDefaultEngine = function() { return new BABYLON.Engine(canvas, true, { preserveDrawingBuffer: true, stencil: true,  disableWebGL2Support: false}); };
+        var createScene = function () {
+        
+            var scene = new BABYLON.Scene(engine);
+            var camera = new BABYLON.ArcRotateCamera("camera", -Math.PI / 2, Math.PI / 2.5, 10, new BABYLON.Vector3(0, 0, 0), scene);
+            camera.attachControl(canvas, true);
+        
+        
+            var cylinder = BABYLON.MeshBuilder.CreateCylinder("cylinder", {height: 3, diameter: 1.5}, scene);
+            cylinder.position.x = -2;
+            var sphere = BABYLON.MeshBuilder.CreateSphere("sphere", {diameter: 2.5}, scene);
+            sphere.position.x = 2;
+        
+        
+            const vertexShader = `
+                precision highp float;
+        
+                // Attributes
+                attribute vec3 position;
+                attribute vec3 normal;
+        
+                // Uniforms
+                uniform mat4 worldViewProjection;
+                uniform mat4 world;
+        
+                // Varying
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+        
+                void main(void) {
+                    vPosition = (world * vec4(position, 1.0)).xyz;
+                    vNormal = normalize(mat3(world) * normal);
+                    gl_Position = worldViewProjection * vec4(position, 1.0);
+                }
+            `;
+        
+        
+            const fragmentShader = `
+                precision highp float;
+        
+                // Varying
+                varying vec3 vPosition;
+                varying vec3 vNormal;
+        
+                // Uniforms
+                uniform vec3 uMatAmbient;
+                uniform vec3 uMatDiffuse;
+                uniform vec3 uMatSpecular;
+                uniform float uMatShininess;
+        
+                uniform vec3 uViewPosition; // Camera position
+        
+               
+                uniform vec3 uPointLightPos;
+                uniform vec3 uPointLightColor;
+        
+             
+                uniform vec3 uPointLight2Pos;
+                uniform vec3 uPointLight2Color;
+        
+              
+                vec3 shadePointLight(vec3 pLightPos, vec3 pLightColor, vec3 pMatAmbient, vec3 pMatDiffuse, vec3 pMatSpecular, float pMatShininess) {
+                    vec3 normal = normalize(vNormal);
+                    vec3 lightDir = normalize(pLightPos - vPosition);
+                    vec3 viewDir = normalize(uViewPosition - vPosition);
+                    vec3 reflectDir = reflect(-lightDir, normal);
+        
+                    vec3 ambient = pMatAmbient * pLightColor;
+                    float diffFactor = max(dot(normal, lightDir), 0.0);
+                    vec3 diffuse = pMatDiffuse * pLightColor * diffFactor;
+                    float specFactor = pow(max(dot(viewDir, reflectDir), 0.0), pMatShininess);
+                    vec3 specular = pMatSpecular * pLightColor * specFactor;
+        
+                    return (ambient + diffuse + specular);
+                }
+        
+                void main(void) {
+                    vec3 finalColor = vec3(0.0, 0.0, 0.0);
+        
+                    finalColor += shadePointLight(uPointLightPos, uPointLightColor, uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess);
+        
+             
+                    finalColor += shadePointLight(uPointLight2Pos, uPointLight2Color, uMatAmbient, uMatDiffuse, uMatSpecular, uMatShininess);
+        
+                    gl_FragColor = vec4(finalColor, 1.0);
+                }
+            `;
+        
+        
+            var shaderMaterial = new BABYLON.ShaderMaterial("phongShader", scene, {
+                vertexSource: vertexShader,
+                fragmentSource: fragmentShader,
+            }, {
+                attributes: ["position", "normal"],
+                uniforms: [
+                    "world", "worldViewProjection", "uViewPosition",
+                    "uMatAmbient", "uMatDiffuse", "uMatSpecular", "uMatShininess",
+                    "uPointLightPos", "uPointLightColor",
+                    "uPointLight2Pos", "uPointLight2Color"
+                ]
+            });
+        
+        
+            shaderMaterial.setColor3("uMatAmbient", new BABYLON.Color3(0.1, 0.1, 0.1));
+            shaderMaterial.setColor3("uMatDiffuse", new BABYLON.Color3(0.1, 0.2, 0.8));
+            shaderMaterial.setColor3("uMatSpecular", new BABYLON.Color3(1.0, 1.0, 1.0));
+            shaderMaterial.setFloat("uMatShininess", 50.0);
+        
+        
+            shaderMaterial.setVector3("uViewPosition", camera.position);
+        
+            shaderMaterial.setVector3("uPointLightPos", new BABYLON.Vector3(5, 5, -5));
+            shaderMaterial.setColor3("uPointLightColor", new BABYLON.Color3(1.0, 1.0, 1.0));
+        
+        
+            //shaderMaterial.setVector3("uPointLight2Pos", new BABYLON.Vector3(-5, 3, -3));
+            //shaderMaterial.setColor3("uPointLight2Color", new BABYLON.Color3(0.0, 1.0, 0.0));
+        
+            cylinder.material = shaderMaterial;
+            sphere.material = shaderMaterial;
+        
+            return scene;
+        };
+                window.initFunction = async function() {
+                    
+                    
+                    
+                    var asyncEngineCreation = async function() {
+                        try {
+                        return createDefaultEngine();
+                        } catch(e) {
+                        console.log("the available createEngine function failed. Creating the default engine instead");
+                        return createDefaultEngine();
+                        }
+                    }
+
+                    window.engine = await asyncEngineCreation();
+                    
+                    const engineOptions = window.engine.getCreationOptions?.();
+                    if (!engineOptions || engineOptions.audioEngine !== false) {
+                        
+                    }
+        if (!engine) throw 'engine should not be null.';
+        startRenderLoop(engine, canvas);
+        window.scene = createScene();};
+        initFunction().then(() => {sceneToRender = scene
+                    });
+
+                    // Resize
+                    window.addEventListener("resize", function () {
+                        engine.resize();
+                    });
+        </script>
+    </body>
+</html>
