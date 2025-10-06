@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>Babylon.js WebXR AR Hit-Test and Interaction</title>
+    <style>
+        html, body {
+            overflow: hidden;
+            width: 100%;
+            height: 100%;
+            margin: 0;
+            padding: 0;
+        }
+
+        #renderCanvas {
+            width: 100%;
+            height: 100%;
+            touch-action: none;
+        }
+    </style>
+    <script src="https://cdn.babylonjs.com/babylon.js"></script>
+    <script src="https://cdn.babylonjs.com/loaders/babylonjs.loaders.min.js"></script>
+</head>
+<body>
+    <canvas id="renderCanvas"></canvas>
+    <script>
+        const canvas = document.getElementById("renderCanvas");
+        const engine = new BABYLON.Engine(canvas, true);
+        const MODEL_URL = "https://github.com/HenryWuJiaL/jwu235_-ar_2025_assignment3/raw/refs/heads/main/boeing_fa-18e_super_hornet.glb";
+
+        const createScene = async function () {
+            const scene = new BABYLON.Scene(engine);
+            const camera = new BABYLON.FreeCamera("camera", new BABYLON.Vector3(0, 1.2, -0.5), scene);
+            const light = new BABYLON.HemisphericLight("light", new BABYLON.Vector3(0, 1, 0), scene);
+            light.intensity = 0.7;
+
+
+            let spawnedModel = null;
+
+            const xr = await scene.createDefaultXRExperienceAsync({
+                uiOptions: {
+                    sessionMode: "immersive-ar",
+                    referenceSpaceType: "local-floor"
+                },
+                optionalFeatures: true
+            });
+
+            const featuresManager = xr.baseExperience.featuresManager;
+
+            const hitTest = featuresManager.enableFeature(BABYLON.WebXRHitTest, "latest");
+
+            let hitTestResult = null;
+
+            const reticle = BABYLON.MeshBuilder.CreateTorus("reticle", {diameter: 0.15, thickness: 0.01});
+            reticle.isVisible = false;
+            reticle.rotation.x = Math.PI / 2;
+
+            hitTest.onHitTestResultObservable.add((results) => {
+                if (results.length) {
+                    hitTestResult = results[0];
+                    reticle.isVisible = true;
+                    hitTestResult.transformationMatrix.decompose(null, reticle.rotationQuaternion, reticle.position);
+                } else {
+                    hitTestResult = null;
+                    reticle.isVisible = false;
+                }
+            });
+
+            // Add an observer for when controllers are added
+            xr.input.onControllerAddedObservable.add((controller) => {
+                controller.onMotionControllerInitObservable.add((motionController) => {
+                    // Process only the right-hand controller
+                    if (motionController.handness === 'right') {
+
+                        const triggerComponent = motionController.getComponent("xr-standard-trigger");
+                        triggerComponent.onButtonStateChangedObservable.add(() => {
+                            if (triggerComponent.pressed && hitTestResult) {
+                                if (!spawnedModel) {
+                                    BABYLON.SceneLoader.ImportMeshAsync("", "", MODEL_URL, scene).then((result) => {
+                                        spawnedModel = result.meshes[0];
+                                        spawnedModel.scaling.scaleInPlace(0.2);
+                                        hitTestResult.transformationMatrix.decompose(null, spawnedModel.rotationQuaternion, spawnedModel.position);
+                                    });
+                                }
+                            }
+                        });
+
+
+                        const thumbstickComponent = motionController.getComponent("xr-standard-thumbstick");
+                        thumbstickComponent.onAxisValueChangedObservable.add((axes) => {
+                            if (spawnedModel) {
+                                const moveSpeed = 0.01;
+                                spawnedModel.position.x += axes.x * moveSpeed;
+                                spawnedModel.position.z -= axes.y * moveSpeed;
+                            }
+                        });
+                    }
+                });
+            });
+
+            return scene;
+        };
+        createScene().then(scene => {
+            engine.runRenderLoop(() => {
+                scene.render();
+            });
+        });
+        window.addEventListener("resize", () => {
+            engine.resize();
+        });
+    </script>
+</body>
+</html>
